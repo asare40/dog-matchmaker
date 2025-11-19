@@ -11,6 +11,8 @@ import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
 import os
+import base64
+from pathlib import Path
 
 # Page configuration
 st.set_page_config(
@@ -36,56 +38,68 @@ st.markdown("""
         color: #4ECDC4;
         margin-bottom: 2rem;
     }
+    .chat-message {
+        padding: 1.5rem;
+        border-radius: 10px;
+        margin-bottom: 1rem;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    .user-message {
+        background-color: #E3F2FD;
+        border-left: 5px solid #2196F3;
+    }
+    .bot-message {
+        background-color: #F1F8E9;
+        border-left: 5px solid #8BC34A;
+    }
+    .breed-card {
+        background-color: #ffffff;
+        border-radius: 15px;
+        padding: 1.5rem;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        margin-bottom: 1.5rem;
+        border: 2px solid #FF6B6B;
+    }
+    .score-badge {
+        background-color: #4ECDC4;
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-weight: bold;
+        display: inline-block;
+        margin-bottom: 1rem;
+    }
+    .trait-pill {
+        background-color: #FFE5B4;
+        padding: 0.3rem 0.8rem;
+        border-radius: 15px;
+        margin: 0.2rem;
+        display: inline-block;
+        font-size: 0.9rem;
+    }
+    .stButton>button {
+        background-color: #FF6B6B;
+        color: white;
+        border-radius: 10px;
+        padding: 0.5rem 2rem;
+        font-weight: bold;
+        border: none;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+    .stButton>button:hover {
+        background-color: #FF5252;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    }
 </style>
 """, unsafe_allow_html=True)
-
-# Get image path function
-def get_image_path(breed_name):
-    """Get the image path for a breed from the cloned repository."""
-    clean_name = breed_name.lower().strip()
-    images_base = 'Dog-Breeds-Dataset/Images-Sample'
-    
-    if not os.path.exists(images_base):
-        return None
-    
-    try:
-        breed_dirs = [d for d in os.listdir(images_base) 
-                     if os.path.isdir(os.path.join(images_base, d))]
-        
-        # Try to find matching directory
-        for breed_dir in breed_dirs:
-            breed_dir_lower = breed_dir.lower()
-            
-            # Check various matching strategies
-            # 1. Direct substring match
-            if clean_name.replace(' ', '') in breed_dir_lower.replace(' ', ''):
-                dir_path = os.path.join(images_base, breed_dir)
-                images = [f for f in os.listdir(dir_path) 
-                         if f.lower().endswith(('.jpg', '.jpeg', '.png', '.gif'))]
-                if images:
-                    return os.path.join(dir_path, images[0])
-            
-            # 2. Check if any significant word matches
-            words = [w for w in clean_name.split() if len(w) > 3]
-            if any(word in breed_dir_lower for word in words):
-                dir_path = os.path.join(images_base, breed_dir)
-                images = [f for f in os.listdir(dir_path) 
-                         if f.lower().endswith(('.jpg', '.jpeg', '.png', '.gif'))]
-                if images:
-                    return os.path.join(dir_path, images[0])
-                    
-    except Exception as e:
-        print(f"Error loading image for {breed_name}: {e}")
-    
-    return None
 
 # Dog Matchmaker Class
 class DogMatchmaker:
     def __init__(self, breed_traits_df):
-        self.breed_traits_original = breed_traits_df.copy()
+        self.breed_traits_original = breed_traits_df.copy()  # Keep original for display
         self.breed_traits = breed_traits_df.copy()
         
-        # Get only numeric trait columns
+        # Get only numeric trait columns (exclude 'Breed', 'Coat Type', 'Coat Length')
         self.trait_columns = [col for col in breed_traits_df.columns 
                              if col not in ['Breed', 'Coat Type', 'Coat Length'] 
                              and breed_traits_df[col].dtype in ['int64', 'float64']]
@@ -112,33 +126,25 @@ class DogMatchmaker:
                 profile['Energy Level'] = 3
                 profile['Playfulness Level'] = 3
                 weights['Energy Level'] = 1.5
-                weights['Playfulness Level'] = 1.0
-            elif 'low' in activity or 'calm' in activity or 'couch' in activity:
+            elif 'low' in activity or 'couch' in activity:
                 profile['Energy Level'] = 2
-                profile['Playfulness Level'] = 2
                 weights['Energy Level'] = 2.0
-                weights['Playfulness Level'] = 1.5
         
         # Living Space
         if 'living_space' in preferences:
             space = preferences['living_space'].lower()
             if 'apartment' in space or 'small' in space:
                 profile['Adaptability Level'] = 5
-                profile['Energy Level'] = 2
                 weights['Adaptability Level'] = 2.0
-            elif 'house' in space and 'yard' in space:
-                profile['Energy Level'] = 4
-                weights['Energy Level'] = 1.0
         
         # Children
         if 'children' in preferences:
             children = preferences['children'].lower()
-            if 'yes' in children or 'young' in children:
+            if 'yes' in children:
                 profile['Good With Young Children'] = 5
                 profile['Affectionate With Family'] = 5
                 weights['Good With Young Children'] = 3.0
-                weights['Affectionate With Family'] = 1.5
-            elif 'no' in children:
+            else:
                 weights['Good With Young Children'] = 0.1
         
         # Other Dogs
@@ -147,40 +153,29 @@ class DogMatchmaker:
             if 'yes' in other_dogs:
                 profile['Good With Other Dogs'] = 5
                 weights['Good With Other Dogs'] = 3.0
-            elif 'no' in other_dogs:
+            else:
                 weights['Good With Other Dogs'] = 0.1
         
-        # Allergies/Shedding
+        # Allergies
         if 'allergies' in preferences:
             allergies = preferences['allergies'].lower()
             if 'yes' in allergies:
                 profile['Shedding Level'] = 1
                 weights['Shedding Level'] = 3.0
-            else:
-                weights['Shedding Level'] = 0.5
         
-        # Grooming Time
+        # Grooming
         if 'grooming_time' in preferences:
             grooming = preferences['grooming_time'].lower()
             if 'low' in grooming or 'minimal' in grooming:
                 profile['Coat Grooming Frequency'] = 1
                 weights['Coat Grooming Frequency'] = 2.0
-            elif 'moderate' in grooming:
-                profile['Coat Grooming Frequency'] = 3
-                weights['Coat Grooming Frequency'] = 1.0
-            elif 'high' in grooming or 'lot' in grooming:
-                weights['Coat Grooming Frequency'] = 0.5
         
         # Training Experience
         if 'training_experience' in preferences:
             experience = preferences['training_experience'].lower()
             if 'first' in experience or 'beginner' in experience or 'no' in experience:
                 profile['Trainability Level'] = 5
-                profile['Adaptability Level'] = 5
                 weights['Trainability Level'] = 2.5
-                weights['Adaptability Level'] = 1.5
-            elif 'experienced' in experience or 'yes' in experience:
-                weights['Trainability Level'] = 1.0
         
         # Guard Dog
         if 'guard_dog' in preferences:
@@ -188,20 +183,18 @@ class DogMatchmaker:
             if 'yes' in guard:
                 profile['Watchdog/Protective Nature'] = 5
                 weights['Watchdog/Protective Nature'] = 2.0
-            elif 'no' in guard:
+            else:
                 profile['Openness To Strangers'] = 5
                 weights['Openness To Strangers'] = 1.5
         
-        # Barking Tolerance
+        # Barking
         if 'barking_tolerance' in preferences:
             barking = preferences['barking_tolerance'].lower()
             if 'quiet' in barking or 'low' in barking:
                 profile['Barking Level'] = 1
                 weights['Barking Level'] = 2.0
-            elif 'moderate' in barking:
-                weights['Barking Level'] = 0.5
         
-        # Set default weights for traits not specified
+        # Set defaults
         for trait in self.trait_columns:
             if trait not in weights:
                 weights[trait] = 0.3
@@ -209,7 +202,6 @@ class DogMatchmaker:
         return profile, weights
     
     def calculate_match_score(self, breed_row, user_profile, weights):
-        """Calculate weighted match score for a breed."""
         score = 0
         max_score = 0
         
@@ -227,25 +219,20 @@ class DogMatchmaker:
         return (score / max_score) * 100
     
     def apply_dealbreakers(self, breeds_df, preferences):
-        """Filter out breeds that don't meet critical requirements."""
         filtered = breeds_df.copy()
         
-        # Allergies - must be low shedding
         if 'allergies' in preferences and 'yes' in preferences['allergies'].lower():
             filtered = filtered[filtered['Shedding Level'] <= 2]
         
-        # Young children - must be at least moderately good
         if 'children' in preferences and 'yes' in preferences['children'].lower():
             filtered = filtered[filtered['Good With Young Children'] >= 3]
         
-        # Other dogs - must be compatible
         if 'other_dogs' in preferences and 'yes' in preferences['other_dogs'].lower():
             filtered = filtered[filtered['Good With Other Dogs'] >= 3]
         
         return filtered
     
     def get_recommendations(self, preferences, top_n=3):
-        """Get top N breed recommendations with explanations."""
         user_profile, weights = self.create_user_profile(preferences)
         
         # Apply dealbreakers on original data
@@ -258,7 +245,6 @@ class DogMatchmaker:
         eligible_breed_names = eligible_breeds_original['Breed'].tolist()
         eligible_breeds = self.breed_traits[self.breed_traits['Breed'].isin(eligible_breed_names)]
         
-        # Calculate match scores
         scores = []
         for idx, row in eligible_breeds.iterrows():
             score = self.calculate_match_score(row, user_profile, weights)
@@ -270,18 +256,11 @@ class DogMatchmaker:
                 'traits': original_row.to_dict()
             })
         
-        # Sort by score
         scores.sort(key=lambda x: x['score'], reverse=True)
         
-        # Get top N with explanations
         recommendations = []
         for i, match in enumerate(scores[:top_n]):
-            explanation = self._generate_explanation(
-                match['breed'], 
-                match['traits'], 
-                preferences, 
-                user_profile
-            )
+            explanation = self._generate_explanation(match['breed'], match['traits'], preferences)
             
             recommendations.append({
                 'rank': i + 1,
@@ -293,40 +272,30 @@ class DogMatchmaker:
         
         return recommendations
     
-    def _generate_explanation(self, breed_name, traits, preferences, user_profile):
-        """Generate natural language explanation for the match."""
+    def _generate_explanation(self, breed_name, traits, preferences):
         reasons = []
         
-        # Check key matching factors
         if 'children' in preferences and 'yes' in preferences['children'].lower():
-            child_score = traits['Good With Young Children']
-            if child_score >= 4:
-                reasons.append(f"excellent with children (rated {child_score}/5)")
+            if traits['Good With Young Children'] >= 4:
+                reasons.append(f"excellent with children (rated {int(traits['Good With Young Children'])}/5)")
         
         if 'activity_level' in preferences:
             energy = traits['Energy Level']
-            if 'high' in preferences['activity_level'].lower() or 'very active' in preferences['activity_level'].lower():
-                if energy >= 4:
-                    reasons.append(f"high energy level ({energy}/5) matches your active lifestyle")
-            elif 'low' in preferences['activity_level'].lower() or 'calm' in preferences['activity_level'].lower():
-                if energy <= 3:
-                    reasons.append(f"calm demeanor (energy {energy}/5) suits a relaxed home")
+            if 'high' in preferences['activity_level'].lower() and energy >= 4:
+                reasons.append(f"high energy level matches your active lifestyle")
+            elif 'low' in preferences['activity_level'].lower() and energy <= 3:
+                reasons.append(f"calm demeanor suits a relaxed home")
         
         if 'allergies' in preferences and 'yes' in preferences['allergies'].lower():
-            shedding = traits['Shedding Level']
-            if shedding <= 2:
-                reasons.append(f"low shedding ({shedding}/5) - great for allergies")
+            if traits['Shedding Level'] <= 2:
+                reasons.append(f"low shedding - great for allergies")
         
-        if 'training_experience' in preferences:
-            if 'beginner' in preferences['training_experience'].lower() or 'first' in preferences['training_experience'].lower():
-                trainability = traits['Trainability Level']
-                if trainability >= 4:
-                    reasons.append(f"highly trainable ({trainability}/5) - perfect for first-time owners")
+        if 'training_experience' in preferences and ('beginner' in preferences['training_experience'].lower() or 'no' in preferences['training_experience'].lower()):
+            if traits['Trainability Level'] >= 4:
+                reasons.append(f"highly trainable - perfect for first-time owners")
         
-        # Add affection note
-        affection = traits['Affectionate With Family']
-        if affection >= 4:
-            reasons.append(f"very affectionate ({affection}/5)")
+        if traits['Affectionate With Family'] >= 4:
+            reasons.append(f"very affectionate with family")
         
         if not reasons:
             reasons.append("well-balanced traits for your lifestyle")
@@ -339,6 +308,49 @@ def load_data():
     breed_traits = pd.read_csv('data/breed_traits.csv')
     breed_traits['Breed'] = breed_traits['Breed'].str.replace('Â', ' ').str.strip()
     return breed_traits
+
+# Get image path
+def get_image_path(breed_name):
+    """Get the image path for a breed from the sample images folder."""
+    sample_dir = 'Dog-Breeds-Dataset/Images-Sample/'
+    
+    if not os.path.exists(sample_dir):
+        return None
+    
+    # Convert breed name to match the image filename format
+    # Images are lowercase with spaces and " dog" suffix
+    # e.g., "Shetland Sheepdogs" -> "shetland sheepdog dog"
+    
+    # Remove plural 's' if present
+    search_name = breed_name.lower()
+    if search_name.endswith('s') and not search_name.endswith('ss'):
+        search_name = search_name[:-1]  # Remove trailing 's'
+    
+    # Add " dog" suffix
+    search_name = search_name + " dog"
+    
+    # Try to find exact match
+    for file in os.listdir(sample_dir):
+        if file.lower().endswith(('.jpg', '.png', '.jpeg')):
+            file_base = os.path.splitext(file)[0].lower()
+            if file_base == search_name:
+                return os.path.join(sample_dir, file)
+    
+    # If no exact match, try partial match (first significant word)
+    breed_words = breed_name.lower().split()
+    # Skip common articles/prepositions
+    skip_words = ['the', 'a', 'an', 'of']
+    significant_words = [w for w in breed_words if w not in skip_words and len(w) > 2]
+    
+    if significant_words:
+        for file in os.listdir(sample_dir):
+            if file.lower().endswith(('.jpg', '.png', '.jpeg')):
+                file_base = os.path.splitext(file)[0].lower()
+                # Check if significant words appear in filename
+                if any(word in file_base for word in significant_words[:2]):  # Check first 2 significant words
+                    return os.path.join(sample_dir, file)
+    
+    return None
 
 # Initialize session state
 if 'conversation' not in st.session_state:
@@ -366,9 +378,10 @@ with st.sidebar:
     preferences, and living situation.
     
     **How it works:**
-    1. Answer questions about your lifestyle
+    1. Answer a few questions about your lifestyle
     2. Get personalized breed recommendations
     3. View detailed profiles with images
+    4. Make an informed decision!
     """)
     
     st.header("📊 Quick Stats")
@@ -388,9 +401,9 @@ st.header("💬 Chat with the Dog Matchmaker")
 # Display conversation history
 for message in st.session_state.conversation:
     if message['role'] == 'user':
-        st.info(f"👤 **You:** {message['content']}")
+        st.markdown(f'<div class="chat-message user-message">👤 <strong>You:</strong> {message["content"]}</div>', unsafe_allow_html=True)
     else:
-        st.success(f"🤖 **Dog Matchmaker:** {message['content']}")
+        st.markdown(f'<div class="chat-message bot-message">🤖 <strong>Dog Matchmaker:</strong> {message["content"]}</div>', unsafe_allow_html=True)
 
 # Greeting
 if st.session_state.stage == 'greeting' and len(st.session_state.conversation) == 0:
@@ -424,11 +437,14 @@ questions = {
 question_order = list(questions.keys())
 
 # User input
-if st.session_state.stage not in ['results', 'processing']:
-    # Use unique key for each question to prevent auto-fill
-    user_input = st.text_input("Your answer:", key=f"input_{st.session_state.stage}", value="")
+if st.session_state.stage != 'results':
+    user_input = st.text_input("Your answer:", key="user_input", placeholder="Type your answer here...")
     
-    if st.button("Send", key=f"send_{st.session_state.stage}") and user_input:
+    col1, col2 = st.columns([1, 5])
+    with col1:
+        submit = st.button("Send", type="primary")
+    
+    if submit and user_input:
         # Add user message
         st.session_state.conversation.append({'role': 'user', 'content': user_input})
         
@@ -461,7 +477,10 @@ if st.session_state.stage == 'processing':
         st.session_state.stage = 'results'
     
     if recommendations:
-        bot_response = f"Great news! Based on your preferences, I've found {len(recommendations)} perfect breed matches for you!"
+        bot_response = f"""
+        Great news! Based on your preferences, I've found {len(recommendations)} perfect breed matches for you! 
+        Here are your personalized recommendations:
+        """
     else:
         bot_response = "I'm having trouble finding breeds that match all your requirements. Let me show you some close matches instead!"
         # Get recommendations without dealbreakers
@@ -477,36 +496,153 @@ if st.session_state.stage == 'results' and st.session_state.recommendations:
     st.header("🏆 Your Top 3 Breed Matches")
     
     for rec in st.session_state.recommendations:
-        with st.expander(f"#{rec['rank']} {rec['breed']} - Match Score: {rec['score']}%", expanded=True):
+        with st.container():
+            st.markdown(f'<div class="breed-card">', unsafe_allow_html=True)
             
-            # Create two columns: image and details
-            col_img, col_details = st.columns([1, 2])
+            col1, col2 = st.columns([1, 2])
             
-            with col_img:
-                # Try to load and display image
+            with col1:
+                # Try to load image
                 img_path = get_image_path(rec['breed'])
                 if img_path and os.path.exists(img_path):
-                    st.image(img_path, use_column_width=True, caption=rec['breed'])
+                    st.image(img_path, use_column_width=True)
                 else:
-                    st.info(f"📷 Image not available for {rec['breed']}")
+                    # Debug info
+                    search_name = rec['breed'].lower()
+                    if search_name.endswith('s') and not search_name.endswith('ss'):
+                        search_name = search_name[:-1]
+                    search_name = search_name + " dog"
+                    st.info(f"📷 Image not found\nBreed: {rec['breed']}\nSearching for: {search_name}")
             
-            with col_details:
+            with col2:
+                st.markdown(f"### #{rec['rank']} {rec['breed']}")
+                st.markdown(f'<div class="score-badge">Match Score: {rec["score"]}%</div>', unsafe_allow_html=True)
                 st.write(rec['explanation'])
                 
+                # Show key traits
                 st.markdown("**Key Traits:**")
-                trait_col1, trait_col2, trait_col3 = st.columns(3)
+                trait_cols = st.columns(3)
                 
-                with trait_col1:
-                    st.metric("Energy Level", f"{int(rec['traits']['Energy Level'])}/5", "⚡")
-                    st.metric("Trainability", f"{int(rec['traits']['Trainability Level'])}/5", "🎓")
+                key_traits = [
+                    ('Energy Level', rec['traits']['Energy Level']),
+                    ('Trainability', rec['traits']['Trainability Level']),
+                    ('Good With Children', rec['traits']['Good With Young Children']),
+                    ('Shedding', rec['traits']['Shedding Level']),
+                    ('Affection', rec['traits']['Affectionate With Family']),
+                    ('Grooming Needs', rec['traits']['Coat Grooming Frequency'])
+                ]
                 
-                with trait_col2:
-                    st.metric("Good With Children", f"{int(rec['traits']['Good With Young Children'])}/5", "👶")
-                    st.metric("Shedding Level", f"{int(rec['traits']['Shedding Level'])}/5", "🧹")
-                
-                with trait_col3:
-                    st.metric("Affection", f"{int(rec['traits']['Affectionate With Family'])}/5", "❤️")
-                    st.metric("Grooming Needs", f"{int(rec['traits']['Coat Grooming Frequency'])}/5", "✂️")
+                for idx, (trait, value) in enumerate(key_traits):
+                    with trait_cols[idx % 3]:
+                        st.markdown(f'<div class="trait-pill">{trait}: {"⭐" * int(value)}</div>', unsafe_allow_html=True)
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Social media post generation
+    st.markdown("---")
+    st.header("📱 Share Your Match")
+    
+    top_match = st.session_state.recommendations[0]
+    social_post = f"""
+    🐕 I just found my perfect dog match! 🎉
+    
+    According to the Dog Matchmaker AI, {top_match['breed']} is my #1 match with a {top_match['score']}% compatibility score!
+    
+    {top_match['explanation']}
+    
+    Find your perfect breed at Dog Matchmaker AI! 🐾
+    #DogMatchmaker #PerfectPup #DogLovers
+    """
+    
+    st.text_area("Copy this post to share on social media:", social_post, height=200)
+    
+    # Interactive Comparison Chart
+    st.markdown("---")
+    st.header("📊 Interactive Breed Comparison")
+    
+    # Create comparison dataframe
+    comparison_data = []
+    for rec in st.session_state.recommendations:
+        comparison_data.append({
+            'Breed': rec['breed'],
+            'Match Score': rec['score'],
+            'Energy Level': int(rec['traits']['Energy Level']),
+            'Trainability': int(rec['traits']['Trainability Level']),
+            'Child Friendly': int(rec['traits']['Good With Young Children']),
+            'Shedding': int(rec['traits']['Shedding Level']),
+            'Affection': int(rec['traits']['Affectionate With Family']),
+            'Adaptability': int(rec['traits']['Adaptability Level'])
+        })
+    
+    comparison_df = pd.DataFrame(comparison_data)
+    
+    # Bar chart comparison
+    traits_to_compare = ['Energy Level', 'Trainability', 'Child Friendly', 'Affection', 'Adaptability']
+    
+    fig, ax = plt.subplots(figsize=(12, 6))
+    x = np.arange(len(traits_to_compare))
+    width = 0.25
+    
+    for i, rec in enumerate(st.session_state.recommendations):
+        values = [comparison_df.iloc[i][trait] for trait in traits_to_compare]
+        ax.bar(x + i*width, values, width, label=f"#{i+1} {rec['breed']}", alpha=0.8)
+    
+    ax.set_xlabel('Traits', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Rating (1-5)', fontsize=12, fontweight='bold')
+    ax.set_title('Side-by-Side Trait Comparison', fontsize=14, fontweight='bold')
+    ax.set_xticks(x + width)
+    ax.set_xticklabels(traits_to_compare, rotation=45, ha='right')
+    ax.legend()
+    ax.set_ylim(0, 5.5)
+    ax.grid(axis='y', alpha=0.3)
+    
+    plt.tight_layout()
+    st.pyplot(fig)
+    
+    # Detailed comparison table
+    st.markdown("### Detailed Trait Comparison")
+    
+    # Format the dataframe for display
+    display_df = comparison_df.copy()
+    display_df['Match Score'] = display_df['Match Score'].apply(lambda x: f"{x}%")
+    
+    # Add star ratings
+    for col in ['Energy Level', 'Trainability', 'Child Friendly', 'Shedding', 'Affection', 'Adaptability']:
+        display_df[col] = display_df[col].apply(lambda x: '⭐' * x)
+    
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    
+    # Download button for results
+    results_text = f"""
+YOUR DOG BREED RECOMMENDATIONS
+================================
+
+Date: {pd.Timestamp.now().strftime('%Y-%m-%d')}
+
+YOUR PREFERENCES:
+{'-' * 40}
+"""
+    for key, value in st.session_state.preferences.items():
+        results_text += f"{key.replace('_', ' ').title()}: {value}\n"
+    
+    results_text += f"\n\nTOP 3 BREED MATCHES:\n{'=' * 40}\n\n"
+    
+    for rec in st.session_state.recommendations:
+        results_text += f"#{rec['rank']} {rec['breed']} - Match Score: {rec['score']}%\n"
+        results_text += f"{rec['explanation']}\n\n"
+        results_text += "Key Traits:\n"
+        results_text += f"  - Energy Level: {int(rec['traits']['Energy Level'])}/5\n"
+        results_text += f"  - Trainability: {int(rec['traits']['Trainability Level'])}/5\n"
+        results_text += f"  - Good With Children: {int(rec['traits']['Good With Young Children'])}/5\n"
+        results_text += f"  - Shedding Level: {int(rec['traits']['Shedding Level'])}/5\n\n"
+    
+    st.download_button(
+        label="📥 Download Your Results",
+        data=results_text,
+        file_name="dog_matchmaker_results.txt",
+        mime="text/plain"
+    )
 
 # Footer
 st.markdown("---")
