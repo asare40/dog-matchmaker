@@ -312,19 +312,43 @@ def load_data():
 # Get image path
 def get_image_path(breed_name):
     """Get the image path for a breed from the sample images folder."""
-    # Clean breed name for filename
-    clean_name = breed_name.replace(' ', '_').replace('(', '').replace(')', '').replace("'", '')
+    sample_dir = 'Dog-Breeds-Dataset/Images-Sample/'
     
-    # Common image locations to try in the sample folder
-    possible_paths = [
-        f'Dog-Breeds-Dataset/Images-Sample/{clean_name}.jpg',
-        f'Dog-Breeds-Dataset/Images-Sample/{clean_name}.png',
-        f'Dog-Breeds-Dataset/Images-Sample/{clean_name}.jpeg',
-    ]
+    if not os.path.exists(sample_dir):
+        return None
     
-    for path in possible_paths:
-        if os.path.exists(path):
-            return path
+    # Convert breed name to match the image filename format
+    # Images are lowercase with spaces and " dog" suffix
+    # e.g., "Shetland Sheepdogs" -> "shetland sheepdog dog"
+    
+    # Remove plural 's' if present
+    search_name = breed_name.lower()
+    if search_name.endswith('s') and not search_name.endswith('ss'):
+        search_name = search_name[:-1]  # Remove trailing 's'
+    
+    # Add " dog" suffix
+    search_name = search_name + " dog"
+    
+    # Try to find exact match
+    for file in os.listdir(sample_dir):
+        if file.lower().endswith(('.jpg', '.png', '.jpeg')):
+            file_base = os.path.splitext(file)[0].lower()
+            if file_base == search_name:
+                return os.path.join(sample_dir, file)
+    
+    # If no exact match, try partial match (first significant word)
+    breed_words = breed_name.lower().split()
+    # Skip common articles/prepositions
+    skip_words = ['the', 'a', 'an', 'of']
+    significant_words = [w for w in breed_words if w not in skip_words and len(w) > 2]
+    
+    if significant_words:
+        for file in os.listdir(sample_dir):
+            if file.lower().endswith(('.jpg', '.png', '.jpeg')):
+                file_base = os.path.splitext(file)[0].lower()
+                # Check if significant words appear in filename
+                if any(word in file_base for word in significant_words[:2]):  # Check first 2 significant words
+                    return os.path.join(sample_dir, file)
     
     return None
 
