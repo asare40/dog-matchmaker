@@ -507,7 +507,12 @@ if st.session_state.stage == 'results' and st.session_state.recommendations:
                 if img_path and os.path.exists(img_path):
                     st.image(img_path, use_column_width=True)
                 else:
-                    st.info(f"📷 Image for {rec['breed']} not found")
+                    # Debug info
+                    search_name = rec['breed'].lower()
+                    if search_name.endswith('s') and not search_name.endswith('ss'):
+                        search_name = search_name[:-1]
+                    search_name = search_name + " dog"
+                    st.info(f"📷 Image not found\nBreed: {rec['breed']}\nSearching for: {search_name}")
             
             with col2:
                 st.markdown(f"### #{rec['rank']} {rec['breed']}")
